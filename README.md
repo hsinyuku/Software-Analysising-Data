@@ -1,2 +1,3 @@
 # SoftwareAnalysisingData
- Projects and challanges using R
+ projects and a challange using R
+ - Intro to time series analysis
