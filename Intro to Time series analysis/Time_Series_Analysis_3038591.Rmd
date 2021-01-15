@@ -1,0 +1,136 @@
+---
+title: "R sample of Time Series Analysis"
+author: 'Hsin-Yu,Ku (Matrikel Num. : 3038591)'
+output:
+  pdf_document: 
+    keep_tex: yes
+    toc_depth: 1
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=5, fig.height=3)
+set.seed(1234)
+```
+goal
+    Goal : explain basic concepts of Time Series(TS) Analysis with several TS datasets.
+##### What is Time Series (TS) ? 
+   TS data is a sequence of data in chronological order.   
+   
+##### ----------------------------------- 01 / Build TS data from non-TS data ----------------------------------- ######
+    ts() turns some data into a TS data.
+      Use: ts(data , start=YEAR, frequency=how many frequences are there in a year)  
+```{r}
+vector_beforeTS <- c(2, 6, 8, 3, 9, 1, 0, 4) 
+TS_data <- ts(vector_beforeTS, start=2020, frequency=4)
+# print() shows TS_data is a TS data inclding 4 quarters from each year 2020-2021.
+print(TS_data)
+```
+##### --------------------------- 02 / A quick inspection into time Series(TS) data --------------------------- #####
+```{r}
+?LakeHuron 
+# LakeHuron shows annual measurements (in feet) of the level of Lake Huron in 1875–1972.
+```
+```{r}
+# is.ts() checks if a data set is a TS data or not. (TRUE/FALSE)
+is.ts(LakeHuron)
+```
+```{r}
+# print() shows that it is a TS data with start in 1875, end in 1972, frequency =1.
+print(LakeHuron)
+```
+```{r}
+# str() shows it is a TS data with 98 observations between 1875-1972
+str(LakeHuron) 
+```
+```{r eval=FALSE, include=FALSE}
+# To see how many observations are there in a TS data, length() can be used too.
+length(LakeHuron) 
+```
+
+```{r, out.width = '60%'}
+# ts.plot() gives an overlook of the trend of one or more TS in a single common plot. 
+ts.plot(LakeHuron, main="Level of Lake Huron(in feet)", ylab=NA)
+```
+
+    When there are more than 1 TS trends, use argument "col=" to display with distinct colors.
+
+```{r,fig.width=6, out.width = '70%'}
+?EuStockMarkets # EuStockMarkets includes daily price of 4 stock indices (1991-1998).
+ # Use col() in ts.plot() to displays trends of 4 stock indices (DAX,SMI,CAC,FTSE) together.
+ts.plot(EuStockMarkets,col=1:4, main="Price Trends of 4 Stock Indices")
+ # Add a legend on the topleft with 0.7 as size, type of line = 1, width =2.
+legend("topleft",colnames(EuStockMarkets), cex=0.7, lty=1, lwd=2, col=1:4)
+```
+
+##### -------------------------------- 03/ More functions to look into a TS data -------------------------------- #####
+
+  **start() & end() functions return the time index of the first & last observations.**
+```{r}
+start(AirPassengers)
+end(AirPassengers)
+ # AirPassengers is a TS data starts on 1949 with time index 1 & ends on 1960 with time index 12 
+```
+
+**deltat() function returns the fixed time interval between observations.**
+
+```{r}
+deltat(AirPassengers)
+ # AirPassengers has a time interval of 0.083333 year between observations.
+```
+```{r eval=FALSE, include=FALSE}
+# time() function calculates a vector of time indices, with one element for each time index on which the series was observed.**
+time(AirPassengers)
+```
+**frequency() function returns the number of observations per unit time.**
+```{r}
+frequency(AirPassengers)
+ # AirPassengers has 12 observations per unit time(year)
+```
+**cycle() function returns the position in the cycle of each observation.**
+```{r}
+cycle(AirPassengers)
+```
+##### ----------------------------- 04/ Simple transformations of trends in TS data ----------------------------- #####
+
+***Transformation by diff()***
+   : diff() deletes seasonal trend in a TS data with "lag = cycle of seasonality." 
+```{r,fig1,fig.width=4, fig.height=4,out.width='60%'}
+AP_no_cycle <-diff(AirPassengers, lag=12)
+plot.ts(cbind(AirPassengers, AP_no_cycle), 
+        main= " AirPassengers: with & w/o yearly pattern", cex.main=1, cex.lab=0.9)
+# plot.ts() plots several TS on differnt bases (but with same time frequency).
+# Here we see that year 1954 and 1958 have comparably low or even negative growth
+  # in the overall growing trend, comparing to the same months of the previous year.  
+```
+***Transformation by log()***
+```{r}
+?airmiles # airmiles shows miles flown by commercial airlines in the US from 1937 to 1960.
+```
+```{r,fig.height=4.3, out.width='40%'}
+ # log() linarlizes the rapid growth since around 1950. 
+plot.ts(cbind(airmiles,log(airmiles)), 
+        main="Log Transformation: Before & After", cex.main=1.3)
+```
+
+##### ------------------------ 05 / Two TS models : White Noise & Random Walk ------------------------ ####
+
+   ***White Noise (WN) model***
+```{r, fig.height=2.8,out.width='50%'}
+# Generating WN data with arima.sim(): order=c(0,0,0)
+WN_data <- arima.sim(model =list(order=c(0,0,0)), n = 200 )
+ts.plot(WN_data, main= "TS data from Whit Noise Model")
+```
+ 
+   ***Random Walk (RW) model***
+```{r, fig.height=2.8,out.width='50%'}
+# Generating RW data with arima.sim(): order=c(0,1,0)
+RW_data <- arima.sim(model =list(order=c(0,1,0)), n = 200)
+ts.plot(RW_data, main= "TS data from Random Walk Model")
+```
+```{r,fig.height=2.8, out.width='50%'}
+# Use cumsum() to turn WN model data into RW model data.
+RW_data2 <- cumsum(WN_data)
+ts.plot(RW_data2)
+title(main= list("Random Walk data   
+generated by cumsum() from White Noise Model",cex=1.2))
+```

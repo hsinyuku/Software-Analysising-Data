@@ -1,0 +1,372 @@
+---
+title: "Analysis of Ecological Footprint and Biocapacity"
+author: 'Hsin-Yu,Ku (Matrikel Num. : 3038591), Feb. 2020'
+output:
+  pdf_document: default
+  html_document: default
+geometry: margin = 1.5 cm
+urlcolor: blue
+---
+Out of love for our earth, the [latest edtion of National Footprint and Biocapacity Accounts 2019 (NFA 2019)](https://data.world/footprint/nfa-2019-edition), an dataset published by [Global Footprint Network](http://www.footprintnetwork.org) is chosen for analysis. 
+
+NFA 2019 is a collected dataset(see [A guide book of NFA 2019](https://www.footprintnetwork.org/content/uploads/2019/05/National_Footprint_Accounts_Guidebook_2019.pdf)) to measure [Ecological Footprint(EF) and biocapacity(BCP)](https://www.footprintnetwork.org/our-work/ecological-footprint/) of 193 countries (including "world") for over 50 years (1961-2016). 
+
+> BCP measures how much nature we have, while EF shows how much nature we use. 
+  (The latter can be viewed as consumption. EF & consumption mean the same.)
+
+PS. In this report, _Global hectares(gha)_, — a globally comparable, standardized hectares -- is the only unit of measure. It is a unit of land normalized by biological productivity across landtype, country, and year. 
+
+(See [related key terms](http://data.footprintnetwork.org/?_ga=2.238536902.710075456.1582797272-1704959139.1582797272#/abouttheData), [full glossary](https://www.footprintnetwork.org/resources/glossary/), as well as [Data and method](https://www.footprintnetwork.org/resources/data/) for more.)
+
+```{r ,references, include=FALSE}
+# country code by UN: https://www.emiw.org/fileadmin/emiw/UserActivityDocs/Geograph.Representation/Geographic-Representation-Appendix_1.pdf
+
+# Analyzing NFA 2012-2018: https://www.mdpi.com/2079-9276/7/3/58
+
+# QScore: [data quality score](https://www.footprintnetwork.org/data-quality-scores/)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=5, fig.height=4)
+
+setwd("/Users/ElinaKu/GD(jade)/2019_GD only/Master Life/ＷinSem 19/Software/Self-chosen dataset(50%)") 
+
+library(tidyverse)
+library(dplyr)
+library(plotly)
+# library(lubridate)
+library(wesanderson) 
+```
+
+### ----------------------------------------------- Create and prepare the dataset ----------------------------------------------- ###
+
+For region-wise analysis, I combined [2 files of NFA 2019]((https://data.world/footprint/nfa-2019-edition)) with [the all.csv file on github](https://github.com/lukes/ISO-3166-Countries-with-Regional-Codes/blob/master/all/all.csv) by [ISO 3166 standard country code.](https://en.wikipedia.org/wiki/ISO_3166)
+
+#### Read in 3 datasets 
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+
+data <- read_csv("https://query.data.world/s/fbvknrt2w5nmufj6iue6cv24v4utl2")
+country <- read_csv("https://query.data.world/s/mgysbl7mcnisg7akii776dangvktnx") 
+  names(country) <- c("country","country_code","alpha2","alpha3")
+region <- read_csv("all.csv") %>% 
+  select(c(country="name",country_code = "country-code", "region", "sub-region", 
+           alpha2 = "alpha-2", alpha3 = "alpha-3")) 
+```
+
+#### Combine 3 datasets from different sources (keep only the useful variables)
+```{r}
+data_coun <- merge(data, country, by=c("country","country_code"))  
+data_regi <- merge(data_coun, region, all.x=T, all.y=F,
+                   by=c("alpha2","alpha3")) %>% rename(country="country.x") %>% 
+  select(-c("alpha2","alpha3","country_code.x","country_code.y","country.y","QScore")) %>% glimpse
+```
+
+### Overview of the variables
+ + record: measurement of __EF__ ("EFCons...") & __BCP__("Biocap...") in gha.
+ 
+ + From _crop_land_ to _carbon_ : 6 columns including 5 landtyes and carbon. The number (in gha) of a landtype either required to support EFc, or that are supported by BP. (column "total" is the sum of these 6 columns.)
+
+### ----------------------------------- Examine missing data and rearrange dataset ------------------------------------------ ###
+```{r}
+# See numbers of missing values for each variables 
+apply(is.na(data_regi),2,sum)
+```
+#### Deal with missing values in variable "region"
+```{r, out.width="45%"}
+data_regi %>% 
+  filter(is.na(region)) %>% group_by(country) %>%  
+  summarize(begin = min(year), end = max(year)) %>% ungroup() %>%
+  mutate(region_country = paste(region, country),
+         country = fct_reorder(as.factor(country), desc(region_country))) %>%
+  ggplot(aes(y = country)) + geom_errorbarh(aes(xmin = begin, xmax = end)) +
+  scale_x_discrete(limits=seq(1960, 2016, 10))+ 
+  labs(x="", y="", title="Years of countries without classified regions")
+```
+
+After research, it shows that these countries are not classified with a corresponding region due to historical reasons : 
+  
+  + Exist before 1992: Czechoslovakia / Ethiopia PDR / USSR / Yugoslav SFR
+  
+  + Exist between 1992-2003: Serbia and Montenegro 
+  
+  + Exist before 2010: Sudan (former) 
+  
+Besides, "World" doesn't correspond to any region in nature.  
+
+#### Manually assign regions to countries 
+```{r}
+assign_region <- function(Country, Region){
+  data_no_coun <- data_regi %>% filter(!country==Country) 
+  data_coun <- data_regi %>% filter(country==Country) %>%   
+    mutate_at(vars(c("region","sub-region")), ~replace(.,is.na(.), Region)) 
+  data_regi <<- bind_rows(data_no_coun , data_coun)
+}
+assign_region("World", "World")
+assign_region("USSR", "Europe")
+assign_region("Czechoslovakia", "Europe")
+assign_region("Yugoslav SFR", "Europe")
+assign_region("Serbia and Montenegro", "Europe")
+assign_region("Sudan (former)", "Africa")
+assign_region("Ethiopia PDR", "Africa")
+```
+
+```{r, include=FALSE}
+## Countries with missing data for 6 types of land
+apply(is.na(data_regi),2,sum)
+
+data_regi %>% 
+  filter(is.na(crop_land) | is.na(grazing_land) | is.na(forest_land) |
+           is.na(fishing_ground) | is.na(built_up_land) | is.na(carbon)) %>%
+  group_by(region, country) %>% summarize(begin = min(year), end = max(year)) %>%
+  ungroup() %>%
+  mutate(region_country = paste(region, country),
+         country = fct_reorder(as.factor(country), desc(region_country))) %>%
+  ggplot(aes(y = country, color=region)) +
+  geom_errorbarh(aes(xmin = begin, xmax = end)) + 
+  labs(title = "Years with missing data for 6 types of land", 
+       subtitle = "(by country)") +
+  scale_x_discrete(limits=seq(1960, 2016, 10))+
+  theme(plot.title = element_text(size=10, hjust=0.5, face="bold"), 
+               axis.title=element_text(size=8))   
+```
+
+> Let's start to look into some trends ! 
+
+### ----------------------------- Global trends in biocapacity(BCP) & consumption(=EF) ----------------------------- ### 
+```{r, echo=FALSE, out.height='60%'}
+# Write a function to see the trends
+trends <- function(record1, record2, Country){
+  data_regi %>%
+  filter(country %in% Country & record %in% c(record1, record2)) %>%
+  ggplot(aes(year, total, color = record)) + geom_line(size=1.1) + 
+  scale_color_manual(labels = c("Biocpacity(BCP)","Consumption(=EF)"), 
+                     guide_legend(""),values=wes_palette(n=2,name="Moonrise3")) +
+  scale_x_discrete(limits=seq(1960, 2016, 10))+
+  theme(plot.title = element_text(size=10, hjust=0.5, face="bold"), 
+        axis.title=element_text(size=8), legend.position="bottom") 
+}
+```
+
+```{r, out.height="35%"}
+trends("BiocapTotGHA", "EFConsTotGHA", "World") +
+  labs(x = "Year", y = "total BCP & EF (gha)", title = "Trends of world total BCP & EF")
+```
+
+At the scale of the world, both BCP and consumption(=EF) are growing. 
+ 
+ + Since 1970, consumption overrides biocapacity
+ 
+ + increase rate : consumption >> biocapacity
+
+>  We know that the world population keeps growing. What are EF and BCP per capita? 
+
+```{r, echo=F, out.height="31%"}
+trends("BiocapPerCap", "EFConsPerCap","World") + 
+  labs(x = "Year", y = 'BCP & EF per Capita (gha/person)', title = "Trends of world BCP & EF per Capita") 
+```
+
+The former graph shows that **worldwide BCP grew slightly**, however this graph hightlights **BCP per capita slumped all the way down due to growing population.** On the other hand, EF per Capita flunctated with an overall up trend.  
+
+> What about regional trends? Each continent might have different patterns. Let's dig into it. 
+
+### -------------------------- Regional trends in biocapacity(BCP) & consumption(=EF) -------------------------- ###
+```{r, out.height="31%"}
+Region_plot <- function(Data, Record){
+Data %>% filter(record == Record & region !='World') %>% 
+  ggplot(aes(year, total, col=region)) + geom_line()+ scale_x_discrete(limits=seq(1960, 2016, 10)) +
+  theme(plot.title = element_text(size=10, hjust=0.5, face="bold"), 
+        axis.title=element_text(size=8), legend.position="bottom") 
+} # write a function for making graphs
+
+data_record <- data_regi %>% filter(record %in% c('BiocapTotGHA', 'EFConsTotGHA')) %>%
+  group_by(region, year, record) %>% summarize(total=sum(total))
+
+Region_plot(data_record,'EFConsTotGHA') + ylab('Total EF(gha)') + ggtitle('Regional Consumptions(=EF)') 
+```
+
+Abviously, Asia is the region with highest growth rate in comsumptions. 
+Notice that _there was a drop in Europe around 1992_. Supposedly it has something to do with _the disolvement of USSR in 1992_. 
+
+### Examine the difference of EF around 1992
+```{r, out.height="90%"}
+data_Eur <- data_regi %>% filter(region == "Europe", record=="EFConsTotGHA") %>% 
+  select(c(country, year, total)) %>% group_by(country) %>%  
+  summarize(begin = min(year), end = max(year), total=sum(total)) 
+
+data_Eur %>%
+  ggplot(aes(y = country)) + geom_errorbarh (aes(xmin = begin, xmax = end))+
+  labs(y="", title='Period of data coverage in EF', subtitle=" (European countries)") +
+  scale_x_discrete(limits=seq(1960,2016,10)) 
+```
+
+The graph reveals that around 1992, Yugoslav SFR, USSR, and Czechoslovakia ended. Several countries (ex:Belarus, Slovenia...) that were dissolved from them appeared afterward. 
+
+### A closer look in countries that ended and started around 1992: 
+
+```{r}
+europe_before1992 <- data_Eur %>%  filter(end < 1993) %>% pull(country)
+europe_before1992
+
+europe_after1992 <- data_Eur %>% filter(begin > 1991) %>% pull(country)
+europe_after1992
+
+Record_Eur <- function(Country, Year, Record){
+  data_regi %>% filter(country %in% Country, year==Year, record==Record)%>%
+  group_by(country) %>% summarize(Total=sum(total)) %>% pull(Total) %>% sum()
+}
+```
+
+```{r, eval=F}
+EF_1992 <- Record_Eur(europe_after1992, 1992, "EFConsTotGHA") 
+EF_1991 <- Record_Eur(europe_before1992, 1991, "EFConsTotGHA") 
+
+EF_1992         # 1434085366
+EF_1991         # 1794505148
+EF_1992-EF_1991 # -360419782 
+```
+
+Leaving out the countries that always exist, we see 16 countries existing only after 1991 have less EF (360 M) than 3 countries exisiting only before 1993. This corresponds to the drop of EF in Europe around 1992 in the previous plot. 
+
+### -------------------------------------------------- Economy and Consumption  ----------------------------------------------- ###
+
+Consumption(=EF) is connected to wealth. Could we see _economic flunctuation can in EF_? 
+
+For example: Around the financial crisis in the late 2000's, was there changes in EF for _PIIGS_?
+
+```{r, out.height="33%"}
+PIIGS <- c('Spain','Greece','Italy','Portugal','Ireland')
+
+eco_EF_plot <- function(Country){
+  data_regi %>% filter(country %in% Country & record =='EFConsPerCap') %>% 
+    ggplot(aes(x=year, y=total, col=country)) + geom_line(alpha=.8,size=1) + 
+    ylab('EF per Capita  (gha/person)') + ggtitle('Economy and Consumption(=EF)') +
+    theme(plot.title = element_text(size=10, hjust=0.5, face="bold"),
+          axis.title=element_text(size=8), legend.position = "bottom") +
+    scale_x_discrete(limits=seq(1960,2016,10))
+}
+eco_EF_plot(PIIGS)
+```
+
+
+We can see there was an obvious drop in comsumption after the financial crisis in 2008. 
+
+> Does the financial crisis have different impacts on EF between developed and developing countries?
+
+```{r, out.height="35%"}
+COUN_ing <- c('China','Brazil','India','Russian Federation',"Turkey","Indonesia")
+COUN_ed <- c('United States of America','Japan','Germany','Austria',"France")
+eco_EF_plot(COUN_ing)
+eco_EF_plot(COUN_ed)
+```
+
+EF in developing countries seems to keep a growing trend regardless of the crisis. 
+On the countrary, EF in developed countries (except Austria) shows overall descending trend in EF after 2000. 
+
+> We have seen trends for EF so farth. Let's look into comparison between EF and BCP. 
+
+### ----------------------------- Regional trends in biocapacity(BCP) & consumption(=EF) ----------------------------- ###
+```{r ,warning=F, out.height="45%"}
+record_spread <- data_regi %>%
+  select(c("country", "region", "year", "total", "record"))%>%
+  spread(key = record, value = total) %>% 
+  select(c("country","region","year","BiocapTotGHA","EFConsTotGHA","EFProdTotGHA")) %>% 
+  group_by(region, year) %>% 
+  summarise(BiocapTotGHA = sum(BiocapTotGHA),
+            EFConsTotGHA = sum(EFConsTotGHA),
+            EFProdTotGHA = sum(EFProdTotGHA))
+
+record_spread %>%
+  ggplot(aes(year, y=EFConsTotGHA, ymin = BiocapTotGHA, ymax = EFConsTotGHA, 
+             fill = BiocapTotGHA < EFConsTotGHA))+
+  geom_line(size=.5)+ geom_ribbon(alpha = 0.8) + facet_wrap(~region, scales = "fixed") +
+  scale_fill_manual(values=c("green","red"), name="fill")+
+  theme(legend.position = "none", plot.title = element_text(size=10, hjust=0.5, face="bold"))+
+  labs(x = "Year",y ="(gha)",title = "Gap between Consumption and Biocapacity by region",
+       subtitle = "(The black line represents the consumption)")
+```
+
+The **green area above the black line(=consumption/EF) represents _ecological reserve_ (EF < BCP)**, which is the case for Americas, Oceania all the time, and for Africa until around 2005. 
+
+In contrast, the black line(=consumption/EF) above a **red area means _ecological deficit_ (EF > BCP)**. This is the case for Europe during all the period, and for Asia since long ago. 
+
+The whole world, as seen before, has _ecological deficit_ since around 1970.
+
+> Let's look deeper into each sub-region (for example: dividing Americas into sub-parts)
+
+```{r, include=F}
+record_spread_sub <- data_regi %>%
+  select(c("country", "region","sub-region", "year", "total", "record"))%>%
+  spread(key = record, value = total) %>% 
+  select(c("country", "region", "sub-region", "year", "BiocapTotGHA", "EFConsTotGHA"))%>%
+  group_by(region, `sub-region`, year) %>% 
+  summarise(BiocapTotGHA = sum(BiocapTotGHA), EFConsTotGHA = sum(EFConsTotGHA),)
+```
+
+```{r,warning=F, out.height="30%"}
+subregion_plot <- function(Region){
+  record_spread_sub %>% filter(`sub-region` != "World", region==Region) %>% 
+  ggplot(aes(year, y=EFConsTotGHA, ymin = BiocapTotGHA, ymax = EFConsTotGHA, 
+             fill = BiocapTotGHA < EFConsTotGHA))+
+  geom_line(size=.5)+ geom_ribbon(alpha = 0.8) + 
+  facet_wrap(~`sub-region`, scales = "fixed") +
+  scale_fill_manual(values=c("green","red"), name="fill")+
+  theme(legend.position = "none", plot.title = element_text(size=10, hjust=0.5, face="bold"))+
+  labs(x="Year",y="(gha)",title ="Gap between Consumption and Biocapacity by sub-region",
+       subtitle = "(The black line represents the consumption)")
+}
+subregion_plot("Americas")
+```
+
+It seems clearer that even Americas as a whole has _ecological reserve_, north america itself is with huge _ecological deficit_.
+
+```{r,warning=F, out.height="36%"}
+subregion_plot("Asia")
+```
+```{r}
+data_regi %>% filter(`sub-region`=="Eastern Asia", record=="EFConsTotGHA") %>% 
+  arrange(country, desc(total)) %>% pull(country) %>% unique() %>% head(1)
+```
+Unsurprisingly, China is the number one with _ecological deficit_ in Eastern Asia.
+
+### ----------------------------------------------------- Carbon emisions(CE) -------------------------------------------------- ###
+We have seen overall EF, which is composed by 5 components. Let's look now into trends from one component.  
+
+### Trend of Carbon Emissions - Worldwide 
+```{r, out.height="21%"}
+per_year_continent <- data_regi %>% filter(record=="EFConsTotGHA") %>% 
+  group_by(year, region) %>% summarise(total_carbon = sum(carbon, na.rm = T)) 
+per_year_continent %>% filter(region =='World') %>% 
+  ggplot(aes(x=year, y=total_carbon)) + scale_x_discrete(limits=seq(1960,2016,10))+
+  geom_line()+ labs(x = "Year", y = "Carbon Emissions(gha)", title = "World Carbon Emissions Trend")
+```
+
+###  Trend of Carbon Emissions - Per region 
+```{r, out.height='27%'}
+per_year_continent %>% filter(region != "World")%>%
+  ggplot(aes(year, total_carbon)) + geom_area(aes(fill=region), alpha=0.8) + 
+  ggtitle('Carbon Emissions Trend by region')+ theme(legend.position = "bottom")+
+  ylab('Total Carbon Emissions(gha)') +  scale_x_discrete(limits=seq(1960,2016,10)) 
+```
+
+The huge green area depicts the fact that Asia accounts for the largest part among total carbon emission. Also, notice that with time Asia takes up more and more percentage. In comparison, Oceania & Africa have very less carbon emission.
+
+```{r, learnings, include=FALSE}
+# read_csv() is different from read.csv()
+# In merge(), set all.x=T: 
+    # then, rows with "country & country_code" in file "data" that can't find 
+    # corresponding of country & country_code in file "region_ref" are kept. 
+    # So the followings all show 193 distinctive countries    
+      # as.character(unique(data$country))  
+      # as.character(unique(data_reg$country)) 
+          # summary(unique(data$country))
+          # summary(unique(data_reg$country))
+# data_regi$Year <- as.Date.character(data_regi$year,"%Y") %>% lubridate::year()
+    # results is still numeric 
+# NULL vs. NA: https://www.r-bloggers.com/r-null-values-null-na-nan-inf/
+# Color in ggplot: http://www.sthda.com/english/wiki/ggplot2-colors-how-to-change-colors-automatically-and-manually#change-colors-by-groups
+# Replace value in a column when country =="World" "
+   # data_regi %>% filter(country=="World") %>%   
+    # mutate_at(vars(c("region","sub-region")), ~replace(.,is.na(.), "World"))
+# ggplot axis ticks: http://www.sthda.com/english/wiki/ggplot2-axis-ticks-a-guide-to-customize-tick-marks-and-labels
+# geom_ribbon : https://stackoverflow.com/questions/37277729/ggplot2-fill-color-behaviour-of-geom-ribbon
+```

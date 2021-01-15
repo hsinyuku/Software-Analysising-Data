@@ -1,0 +1,607 @@
+---
+title: "New York Data Analysis"
+author: "48 Stunden Prüfungsleistung - Hsin-Yu - Feb.1,2020"
+geometry: margin = 1.5 cm
+output:
+  html_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE, eval=TRUE}
+knitr::opts_chunk$set(fig.width=5, fig.height=4)
+setwd("/Users/ElinaKu/GD(jade)/2019_GD only/Master Life/ＷinSem 19/Software/48 Studen") 
+#install.packages("xts")
+#install.packages("anytime")
+library(dplyr)
+library(ggplot2)
+library(ggbiplot) 
+library(tidyverse)
+library(car)  # for aov()
+library(broom)
+#library(rstatix)
+library(ggpubr)
+```
+
+```{r ,include=FALSE, eval=FALSE}
+library(zoo)
+library(lubridate)
+library(xts)
+library(anytime)
+library(devtools)
+
+```
+
+```{r, include=FALSE}
+## change ggbiplot to make prettier PCA
+ggbiplot2 <-function (pcobj, choices = 1:2, scale = 1, pc.biplot = TRUE, 
+          obs.scale = 1 - scale, var.scale = scale, groups = NULL, 
+          ellipse = FALSE, ellipse.prob = 0.68, labels = NULL, labels.size = 3, 
+          alpha = 1, var.axes = TRUE, circle = FALSE, circle.prob = 0.69, 
+          varname.size = 3, varname.adjust = 1.5, varname.abbrev = FALSE, 
+          color = muted("red"), # <- add new arguments to the function
+          linetype = "solid",
+          alpha_arrow = 1) 
+{
+  library(ggplot2)
+  library(plyr)
+  library(scales)
+  library(grid)
+  stopifnot(length(choices) == 2)
+  if (inherits(pcobj, "prcomp")) {
+    nobs.factor <- sqrt(nrow(pcobj$x) - 1)
+    d <- pcobj$sdev
+    u <- sweep(pcobj$x, 2, 1/(d * nobs.factor), FUN = "*")
+    v <- pcobj$rotation
+  }
+  else if (inherits(pcobj, "princomp")) {
+    nobs.factor <- sqrt(pcobj$n.obs)
+    d <- pcobj$sdev
+    u <- sweep(pcobj$scores, 2, 1/(d * nobs.factor), FUN = "*")
+    v <- pcobj$loadings
+  }
+  else if (inherits(pcobj, "PCA")) {
+    nobs.factor <- sqrt(nrow(pcobj$call$X))
+    d <- unlist(sqrt(pcobj$eig)[1])
+    u <- sweep(pcobj$ind$coord, 2, 1/(d * nobs.factor), FUN = "*")
+    v <- sweep(pcobj$var$coord, 2, sqrt(pcobj$eig[1:ncol(pcobj$var$coord), 
+                                                  1]), FUN = "/")
+  }
+  else if (inherits(pcobj, "lda")) {
+    nobs.factor <- sqrt(pcobj$N)
+    d <- pcobj$svd
+    u <- predict(pcobj)$x/nobs.factor
+    v <- pcobj$scaling
+    d.total <- sum(d^2)
+  }
+  else {
+    stop("Expected a object of class prcomp, princomp, PCA, or lda")
+  }
+  choices <- pmin(choices, ncol(u))
+  df.u <- as.data.frame(sweep(u[, choices], 2, d[choices]^obs.scale, 
+                              FUN = "*"))
+  v <- sweep(v, 2, d^var.scale, FUN = "*")
+  df.v <- as.data.frame(v[, choices])
+  names(df.u) <- c("xvar", "yvar")
+  names(df.v) <- names(df.u)
+  if (pc.biplot) {
+    df.u <- df.u * nobs.factor
+  }
+  r <- sqrt(qchisq(circle.prob, df = 2)) * prod(colMeans(df.u^2))^(1/4)
+  v.scale <- rowSums(v^2)
+  df.v <- r * df.v/sqrt(max(v.scale))
+  if (obs.scale == 0) {
+    u.axis.labs <- paste("standardized PC", choices, sep = "")
+  }
+  else {
+    u.axis.labs <- paste("PC", choices, sep = "")
+  }
+  u.axis.labs <- paste(u.axis.labs, sprintf("(%0.1f%% explained var.)", 
+                                            100 * pcobj$sdev[choices]^2/sum(pcobj$sdev^2)))
+  if (!is.null(labels)) {
+    df.u$labels <- labels
+  }
+  if (!is.null(groups)) {
+    df.u$groups <- groups
+  }
+  if (varname.abbrev) {
+    df.v$varname <- abbreviate(rownames(v))
+  }
+  else {
+    df.v$varname <- rownames(v)
+  }
+  df.v$angle <- with(df.v, (180/pi) * atan(yvar/xvar))
+  df.v$hjust = with(df.v, (1 - varname.adjust * sign(xvar))/2)
+  g <- ggplot(data = df.u, aes(x = xvar, y = yvar)) + xlab(u.axis.labs[1]) + 
+    ylab(u.axis.labs[2]) + coord_equal()
+  if (var.axes) {
+    if (circle) {
+      theta <- c(seq(-pi, pi, length = 50), seq(pi, -pi, 
+                                                length = 50))
+      circle <- data.frame(xvar = r * cos(theta), yvar = r * 
+                             sin(theta))
+      g <- g + geom_path(data = circle, color = muted("white"), 
+                         size = 1/2, alpha = 1/3)
+    }
+    g <- g + geom_segment(data = df.v, aes(x = 0, y = 0, 
+                                           xend = xvar, yend = yvar), 
+                          arrow = arrow(length = unit(1/2,"picas")),
+                          color = color, linetype = linetype, alpha = alpha_arrow) 
+                                                          
+  }
+  if (!is.null(df.u$labels)) {
+    if (!is.null(df.u$groups)) {
+      g <- g + geom_text(aes(label = labels, color = groups), 
+                         size = labels.size)
+    }
+    else {
+      g <- g + geom_text(aes(label = labels), size = labels.size)
+    }
+  }
+  else {
+    if (!is.null(df.u$groups)) {
+      g <- g + geom_point(aes(color = groups), alpha = alpha)
+    }
+    else {
+      g <- g + geom_point(alpha = alpha)
+    }
+  }
+  if (!is.null(df.u$groups) && ellipse) {
+    theta <- c(seq(-pi, pi, length = 50), seq(pi, -pi, length = 50))
+    circle <- cbind(cos(theta), sin(theta))
+    ell <- ddply(df.u, "groups", function(x) {
+      if (nrow(x) <= 2) {
+        return(NULL)
+      }
+      sigma <- var(cbind(x$xvar, x$yvar))
+      mu <- c(mean(x$xvar), mean(x$yvar))
+      ed <- sqrt(qchisq(ellipse.prob, df = 2))
+      data.frame(sweep(circle %*% chol(sigma) * ed, 2, 
+                       mu, FUN = "+"), groups = x$groups[1])
+    })
+    names(ell)[1:2] <- c("xvar", "yvar")
+    g <- g + geom_path(data = ell, aes(color = groups, group = groups))
+  }
+  if (var.axes) {
+    g <- g + geom_text(data = df.v, aes(label = varname, 
+                                        x = xvar, y = yvar, angle = angle, hjust = hjust), 
+                       color = "darkred", size = varname.size)
+  }
+  return(g)
+}
+```
+
+#### Overviw of dataset
+The dataset includes data (total obs.=1280, July 2013 ~ Dec 2016)  New York City in 3 categories : 
+
+* `Time`: DATE/ WEEKDAY/ HOLIDAY/ MONTHYEAR/ YEAR/ Month/ DAYMONTH/ WEEKEND
+
+* `Weather`: 
+    + Numeric : AWND/ PRCP/ SNOW/ SNWD/ TAVG/ TMAX/ TMIN/ WSF2/ WSF5/ WDF2/ WDF5
+    + Categorial : PRCP_LCL
+    + Logical : WT01/ WT02/ WT03/ WT04/ WT06/ WT08/ WT09
+
+* `Traffic` : BIKE/ TAXI/ GREEN/ TRAFFIC/ ACCIDENTS (TRAFFIC is continuous ; others are discrete)
+
+We are curious ! **We want to know...**
+
++ **impacts of weather conditions on traffic** 
+
++ **(changes of) traffic/weather patterns in New York over time.**
+
+First, import the data set as `md`. Also, some useful packages like `dplyr` and `ggplot2` are loaded. (codes are not shown) 
+```{r}
+md <- read.csv("NY.csv")
+```
+
+## **Curiosity 1** : How do different levels of percipitation(PRCP_LVL) affect traffic?
+In the 'Weather' variables, only **PRCP_LVL** is categorial, indicating differnt percipitation (perci.) levles in 4 groups: 
+```{r, eval=FALSE}
+levels(md$PRCP_LVL) # shows 4 levels: "Heavy","Moderate","None","Slight"
+```
+
+```{r}
+md$PRCP_LVL<-ordered(md$PRCP_LVL,levels=c("None","Slight","Moderate","Heavy")) #order in sequence of levels.
+```
+
+Start with **BIKE** to see its distribution under each levels of percipitation. (Note: 96 missing obs. of BIKE not included)   
+
+```{r, out.height= "25%", echo=TRUE, warning = FALSE}
+md %>% 
+  ggplot(aes(x=PRCP_LVL, y=BIKE))+
+  geom_boxplot()+
+  labs(x="Levles of Percipitation", y="Number of City-Bike Trips", 
+       title="Number of City-Bike Trips",subtitle="under different levels of percipitation")+
+  theme( plot.title = element_text(hjust=0.5, face="bold"),
+         plot.subtitle = element_text(hjust=0.5, face="bold")) + coord_flip()
+```
+
+The plot shows that overall higher level of perci. has lower numbers of city-bike trips. Let's do some tests to verify.
+```{r}
+aov_BIKE <- aov(BIKE ~ PRCP_LVL, data=md)
+Anova(aov_BIKE, type="III")  # type III for unbalanced design.
+# The test shows indicats that different levels of perci. have different means in bike trip numbers.
+```
+
+##### ----------------------------------------------------- Diagonsis of ANOVA ----------------------------------------------------- ### 
+i)  homogeneity of variance
+```{r}
+leveneTest(BIKE ~ PRCP_LVL, data = md) 
+# p-value > 0.05, meaning we can assume the homogeneity of variances in the different groups.
+```
+ii) Normality
+```{r}
+shapiro.test(resid(aov_BIKE)) # However, the residuals are not normally distributed(N.D)
+```
+-----> Due to non-normality of the residulas, we need an *alternative non-parametric test* to the one-way ANOVA:  
+```{r}
+kruskal.test(BIKE ~ PRCP_LVL, data = md) #kruskal test shows same results as ANOVA.
+```
+> **Thus, we can't deny that each level perci. related to different bike trip numbers.**
+
+##### --------------------------------------------------- Inter-group Differences ------------------------------------------------- ###  
+
+Let's test to see between which groups have mean differences of bike-trip numbers.
+
+```{r}
+TukeyHSD(aov_BIKE)  # Differences are shown among these levels: (S-N), (M-N), (H-N), (M-S)
+```
+
+##### ------------------------------------ What about **TAXI**, **GREEN** & **TRAFFIC**?------------------------------------------- ##### 
+
+How do each levels of percipitation correspond to number of limousine trips (GREEN) and number of taxi trips (Taxi)? 
+
+I repeated the above smae process to all other 'Weather' variables. 
+
+**It turns out that all the other 'Weather' variables don't appear differently in each levels of perci.**
+
+(Here I show only graph and test for **TAXI** as an reference for other 2 'Weather' variables)
+```{r, out.width = '50%', echo=FALSE}
+md %>% 
+  ggplot(aes(x=PRCP_LVL, y=TAXI))+ geom_boxplot()+
+  labs(x="Levles of Percipitation", y="Number of TAXI Trips", 
+                     title="Number of TAXI Trips",
+                     subtitle="under different level of percipitation")+
+  theme( plot.title = element_text(hjust=0.5),
+         plot.subtitle = element_text(hjust=0.5)) + coord_flip()
+```
+
+```{r, echo=FALSE}
+Anova(aov(TAXI ~ PRCP_LVL, data=md),type="III")  # PRCP_LVL is not significant for TAXI. 
+```
+
+## **Curiosity 2** : What are general underlying relations among variables? 
+
+Among 25 variables, I would like to have a simple idea of underlying relations among them before further modelling.
+
+##### --------------------------------------- Look at only *numeric* variables with PCA --------------------------------------- #####
+
+Due to missing values, I cleaned the data to include only values with TRAFFIC after row 257. Then do PCA. 
+```{r, include=FALSE}
+num_W <- md %>% 
+  select(AWND,PRCP,SNOW,SNWD,TAVG,TMAX,TMIN,WSF2,WSF5,WDF2,WDF5)
+num_T <- md %>% 
+  select(BIKE,TAXI,GREEN,TRAFFIC,ACCIDENTS)
+
+num_Total_na <-na.omit(cbind(num_W,num_T))
+num_Total_na # The first 2 rows are not in sequence with the rest
+length(num_Total_na$AWND) #505 rows with the first 2 rows not in sequence
+num_Total_na <-num_Total_na[-c(1,2),] 
+num_Total_na 
+glimpse(md[657,])  #num_Total_na starts from 2015.4.18 (row 257)
+```
+
+```{r, include=TRUE}
+t.PCA <- prcomp(num_Total_na, center = TRUE, scale. = TRUE)
+```
+```{r, eval=FALSE}
+summary(prcomp)
+```
+
+> **The summary of *t.PCA* model shows that 41% of variance is explained by PC1 & PC2.** 
+
+Let's take a look at the biplot: 
+```{r, warning = FALSE, out.height='40%'}
+ggbiplot2(t.PCA, obs.scale =1 , var.scale=1, labels="", varname.size = 2.5, varname.adjust = 1.5,
+          color = "orange", linetype = 3, alpha_arrow = 0.8)+ xlim(-4,3)+ylim(-2.5, 1.5)+
+  labs(title="PC1 & PC2 of all numeric variables" , subtitle ="showing correlations between variables")+
+  theme(plot.title = element_text(hjust=0.5,face="bold"), plot.subtitle =element_text(hjust=0.5))
+```
+```{r, eval=F}
+t.PCA$rotation  # shows relationshipbetween the initial variables and the principal components
+```
+Combining all information above, we see 3 groups of underlying relations between numeric variables.   
+
+ + AWND, WSF2, WSF5, WDF2, WDF5, SNOW, PRCP 
+
+ + SNWD, GREEN, TRAFFIC, TAXI 
+
+ - TAVG, TMANX, TMIN, ACCIDENT,BIKE
+ 
+> **Later, I would consider to first try modelling within the same and negatively-correlated groups.**
+ 
+##### ------------------------ Look at *numeric* variables but without **TRAFFIC** with PCA ----------------------------- ##### 
+
+Because *TRAFFIC* has many missing values, I did another PCA that excludes TRAFFIC and see the relations with more observations.(only 156 instead of 857 observations are omitted) 
+
+```{r, include=FALSE}
+num_pT <- md %>% 
+  select(BIKE,TAXI,GREEN,ACCIDENTS)
+
+num_pTotal_na <-na.omit(cbind(num_W,num_pT))
+num_pTotal_na
+length(num_pTotal_na$AWND) 
+num_pTotal_na <-num_pTotal_na[-1,] 
+glimpse(md[36,]) #2013.08.5
+```
+
+```{r, include=TRUE}
+p.PCA  <- prcomp(num_pTotal_na, center = TRUE, scale. = TRUE)
+```
+
+> **The summary of *p.PCA* model shows that 47% of variance is explained by PC1 & PC2.** 
+
+Take a look at the biplot of p.PCA : 
+```{r, warning = FALSE, echo=FALSE, out.width='45%'}
+ggbiplot2(p.PCA, obs.scale =1 , var.scale=1, labels ="",
+          varname.size = 2.5, varname.adjust = 1.5,
+          color = "orange", linetype = 3, alpha_arrow = 0.8)+ xlim(-4, 2.5)+ylim(-1.2, 2.8)+
+  labs(title="PC1 & PC2 of all numeric variables", subtitle ="without TRAFFIC")+
+  theme(plot.title = element_text(hjust=0.5,face="bold"), plot.subtitle =element_text(hjust=0.5))
+```
+
+Fliter out **Traffic** to include more observation doesn't change much of the variance explained (from t.PCA to p.PCA). Both shows similar groups, except *SNOW* is more in the PC1 direction in p.PCA. 
+
+##### ------------------------ Look at *logical* variables (WT01 ~ WT09, no WT05 & WT07) ------------------------ ####
+
+```{r, include=FALSE}
+table(md$WT03)  # TRUE=10 means that WT03 has 10 days with thunders
+```
+
+```{r, echo=FALSE}
+W1<-table(md$WT01)
+W2<-table(md$WT02)
+W3<-table(md$WT03)
+W4<-table(md$WT04)
+W6<-table(md$WT06)
+W7<-table(md$WT08)
+W9<-table(md$WT09) 
+tibble(Log.=c("FALSE","TRUE"),WT01=W1,WT02=W2,WT03=W3,WT04=W4,WT06=W6,WT07=W7,WT09=W9)
+```
+The above table shows (TURE/FALSE) of all logical variables. We can see that:
+
++ *WT04*, *WT06*, *WT09* have the same structure (F:1274 / T:6), together with *WT03*, all 4 of them have very less TURE compared to FALSE.
+
++ *WT01*, *WT02*, *WT08* have comparably more TRUE. --> **I would consider to include them for later modelling.** 
+
+## **Curiosity 3** : How do weather conditions affect number of bike rides? 
+
+We see early on PCA biplots that **BIKE** is close to **TAVG** , while in negative direction of **SNWD** and **SNOW**.
+
+Let's visualize and try to do a regression of these variables on BIKE.
+
+```{r, warning=FALSE, out.width='40%'}
+ggplot(md, aes(x = TAVG, y = BIKE))+
+  geom_point(alpha=.3)+ 
+  stat_smooth(se=FALSE)+
+  labs(title="Number of bike trips VS. Average temperature", 
+       x="Average Temperature(Fahrenheit)", y="Number of bike trips")
+  # Days with higher temperture have more bike trips
+```
+
+```{r, warning=FALSE, out.width='37%'}
+par(mfrow = c(1, 2))
+ggplot(md, aes(x = SNOW, y = BIKE))+
+  geom_point(alpha=.4)+
+  geom_smooth(se=FALSE)
+# We see an outlier when SNOW > 600. Do the similar for SNWD, we see outliers when SNWD >300
+```
+
+```{r, warning=FALSE, out.width='33%', include=FALSE}
+ggplot(md, aes(x = SNWD, y = BIKE))+
+  geom_point(alpha=.3)+
+  geom_smooth(se=FALSE)
+```
+
+We exclude both the outliers in *SNWD* and *SNOW* and do a linear regression together with *TAVG* for *BIKE*.
+
+```{r}
+md_BIKE_normSnow <- filter(md,SNOW<600 & SNWD<300)
+mdl_BIKE_0 <- lm(BIKE ~ SNOW + TAVG + SNWD, data=md_BIKE_normSnow)
+mdl_BIKE_0$coefficients
+# Summary of the model shows that all 3 variables are significant 
+# +/- of coefficients suggests that there is more bike trip with...
+  # i)less snow fall / ii) lower snow depth / iii)hotter temperature.
+```
+
+### Diagnosis of linear regression 
+```{r}
+shapiro.test(resid(mdl_BIKE_0)) # P-value < 0.05, Residuals are NOT normally distributed 
+# --> We should use other model.
+```
+
+### Try GLM 
+```{r}
+mdl_BIKE_glm_0 <- glm(BIKE ~ SNOW + TAVG + SNWD, data=md_BIKE_normSnow, poisson(link=log))
+```
+
+```{r, eval=FALSE}
+summary(mdl_BIKE_glm_0)
+# Summary of the model shows 3 variables are all significant(p<0.05)
+```
+
+### Check multicollinearity of predictors
+```{r}
+vif(mdl_BIKE_glm_0)  # vif<4 :It is valid to use glm. 
+```
+
+```{r,include=FALSE}
+# R squared???
+library("modEvA")
+library("fmsb")
+# RsqGLM(mdl_BIKE_glm_0)
+NagelkerkeR2(mdl_BIKE_glm_0) # Pseudo-R-squred = 1 --> good fit
+```
+
+```{r,include=FALSE}
+### glm with PRCP_LVL???
+mdl_BIKE_glm_1 <- glm(BIKE ~ SNOW + TAVG + SNWD + PRCP_LVL, data=md_BIKE_normSnow, poisson(link=log))
+summary(mdl_BIKE_glm_1) 
+vif(mdl_BIKE_glm_1)  # <4: ok!
+NagelkerkeR2(mdl_BIKE_glm_1)
+```
+
+### Consider logical 'Weather' variables with ANOVA
+As said early, I will fist check **WT01**, **WT02**, **WT08** (because the others have very less TRUE comparably)
+```{r}
+mod_BIKE_logi<- aov(BIKE ~ WT01 + WT02 + WT08 + PRCP_LVL ,data=md)
+summary(mod_BIKE_logi)  # WT02 and PRCP_LCL are significant, while WT01 and WT08 are not.
+```
+Let's look at it visually: 
+```{r, warning=FALSE, out.width='40%', out.height='40%'}
+md %>% 
+  ggplot(aes(x=WT02, y=BIKE))+ geom_boxplot()+
+  labs(x="WT2:Heavy Fog", y="Number of City-Bike Trips",
+       title="Number of city-bike trips with or without fog")+
+  theme( plot.title = element_text(hjust=0.5), plot.subtitle = element_text(hjust=0.5))
+```
+```{r}
+# Do the same for WT08. Visually, we see there are differences in bike trips for WT02 but not WT08.
+# --> having fog(WT02) makes difference in numbers of bike trips, while having thunder(WT08) doesn't. 
+```
+
+```{r, warning=FALSE, out.width='40%', echo=FALSE}
+md %>% 
+  ggplot(aes(x=WT08, y=BIKE))+ geom_boxplot()+labs(x="WT8:Thunder", y="Number of City-Bike Trips",
+                                                   title="Number of city-bike trips with or without thunders")+
+  theme( plot.title = element_text(hjust=0.5),
+         plot.subtitle = element_text(hjust=0.5))
+```
+
+Overall, besides levels of percipitation(PRCP_LVL), **temperature(TAVG) positively correlated to bike trips**, while **heavy or freezing fog (WTO2), snow fall & depth(SNOW, SNWD) give rise to less bike trips.**
+
+```{r,include=FALSE, eval=FALSE}
+#### One-way ANCONVA???
+#Linearity assumption
+ggscatter(md, x = "TAVG", y = "BIKE", color = "PRCP_LVL", add = "reg.line", alpha =0.1)+ stat_regline_equation(aes(label =  paste(..eq.label.., ..rr.label.., sep = "~~~~"), color = PRCP_LVL))
+
+#Homogeneity of regression slopes
+summary(aov(BIKE ~ PRCP_LVL*TAVG, data=md))
+m <- lm(BIKE ~ TAVG + PRCP_LVL, data=md)
+shapiro.test(m$residuals)
+```
+
+```{r,include=FALSE, eval=FALSE}
+#### Two-way ANCONVA???
+
+ggscatter(md, x = "TAVG", y = "BIKE",
+  facet.by=c("PRCP_LVL","WT02"), short.panel.labs = FALSE)+
+  stat_smooth(method = "loess", span = 0.9)
+
+summary(aov(BIKE ~ TAVG + WT02*TAVG, data=md))
+```
+
+## **Curiosity 4** : What was some patterns in the number of average accidents in New York? 
+
+```{r, include=FALSE}
+md$YEAR2 <- as.factor(md$YEAR)
+#summary(aov(ACCIDENTS~YEAR,data=md))
+#leveneTest(aov(ACCIDENTS~YEAR,data=md))
+```
+
+```{r, include=FALSE}
+### Table of average accident numbers each year
+Acci_13 <- round(as.numeric(md %>%
+  filter(YEAR=="2013") %>% 
+  summarize(mean(ACCIDENTS))),1)
+Acci_14 <- round(as.numeric(md %>%
+  filter(YEAR=="2014") %>% 
+  summarize(mean(ACCIDENTS))),1)
+Acci_15 <- round(as.numeric(md %>%
+  filter(YEAR=="2015") %>% 
+  summarize(mean(ACCIDENTS))),1)
+Acci_16 <- round(as.numeric(md %>%
+  filter(YEAR=="2016") %>% 
+  summarize(mean(ACCIDENTS))),1)
+```
+
+```{r, include=FALSE}
+tibble(YEAR="Average Accidents","2013"=Acci_13,"2014"=Acci_14,"2015"=Acci_15,"2016"=Acci_16) 
+# We see a slight growth in average accidents in 2015 and 2016.
+```
+
+```{r, out.width='48%'}
+plot(md$YEAR2, md$ACCIDENTS, xlab="Time", ylab="Accidents", main="Trend of average numbers of accidents")
+```
+
+i) Although not obvious in the boxplot, *average accident numbers grew slightly from 2014 to 2016*. 
+
+ii) Also, we see there was **an outlier day of very high accidents (>1000) in 2014.** What days was that?
+
+```{r}
+High_Accid <- filter(md, md$ACCIDENTS >1000) 
+High_Accid[,c(1,2,3,11,12,13)] 
+```
+
+```{r}
+# That was a normal working day with slight rain, some snow fall (but no snow depth) on 21 Jan. 2014
+```
+
+```{r, out.width='38%', include=FALSE}
+### Vidualize yearly average accidents in a time series plot
+Accid_year <-as.table(c(Acci_13,Acci_14,Acci_15,Acci_16))
+Average_accidents <- ts(Accid_year,start=2013,frequency=1)
+ts.plot(Average_accidents,main="Trend of average numbers of accidents")
+# It is clearer to see that there were growth in average accident numbers from 2015.
+```
+
+iii) Do we have more accidents on holidays? If yes, does that change with year?
+```{r,out.height='40%'}
+group_by(md,md$YEAR) %>% 
+  ggplot(aes(x=HOLIDAY,y=ACCIDENTS))+ geom_boxplot()+ facet_grid(~YEAR)
+```
+
+> No matter each year, **counter-intuitively, there are less accidents on holidays.**
+
+## **Curiosity 5** : What are some patterns in temperature for New York? 
+
+i) What is the overall patterns of temperature by months in each year?
+```{r, out.height='70%'}
+md$YEAR2 <- as.factor(md$YEAR)
+md$MONTH <- ordered(md$MONTH,
+           levels = c("January","February","March","April","May","June","July",
+                      "August","September","October","November","December"))
+
+levels(md$MONTH) <- c("JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEM")
+
+group_by(md,md$YEAR2,md$MONTH) %>% 
+  ggplot(aes(y=TAVG))+ geom_boxplot()+ facet_grid(YEAR~MONTH)+ ylab("Daily Average Temperatures")
+```
+
+This graph indicates that...
+
++ First of all, there is no data from JAN to JUN for 2013
+
++ Each year there were similar yearly pattern for daily average temperture(D.A.T) : 
+
+  - JUL, AUG were the hottest / DEC, JAN, FEB were the coldest. (look at overall height of a single boxplot)  
+
++ Bigger range of the box-whisker suggests that the range of D.A.T was:
+
+  - smaller in summer(JULY, AUG) & bigger in winter(JAN, FEB).
+
+ii) Did daily average temperature gwow higher during 2013 to 2016 (maybe due to global warming) ?
+```{r, out.width='40%'}
+group_by(md,md$YEAR2) %>% 
+  ggplot(aes(x=YEAR2,y=TAVG))+ geom_boxplot()+ labs(y="Daily Average Temperature (Fahrenheit)", x="Year") 
+```
+
+First of all, since we only half year data for 2013, we should just **ignore the boxplot in 2013** here.
+
+Comparing 2014 ~ 2016, it seems there was **no obvious trends of growing daily average tempertures(D.A.T)**. 
+
+However, **look at the range of a single boxplot**, the range of D.A.T got wider from 2013 to 2016 ! This indicates that **D.A.T got more extreme in 2016 compared to 2013 !** 
+
+```{r, include=FALSE}
+md$Trange <- md$TMAX - md$TMIN 
+group_by(md,md$YEAR) %>% 
+  ggplot(aes(x=YEAR2,y=Trange))+ geom_boxplot()
+```
